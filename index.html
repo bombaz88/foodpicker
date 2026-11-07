@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>วันนี้กินอะไรดี</title>
+<!-- สร้างอัตโนมัติจาก static/index.html ด้วย build_standalone.py — อย่าแก้ไฟล์นี้ตรงๆ -->
+<meta name="theme-color" content="#7a2e0e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%237a2e0e'/><text x='50' y='70' font-size='62' text-anchor='middle'>🍜</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍜</text></svg>">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --fs:18px;
+  --bg:#f3efe8; --panel:#ffffff; --ink:#1f1a14; --muted:#6b6257;
+  --bar1:#7a2e0e; --bar1ink:#fff7ee;            /* แถบบนสุด */
+  --bar2:#f5d9b8; --bar2line:#c9915a;            /* แถบหมวด */
+  --head:#3b2a1d; --headink:#ffe9cf;             /* หัวแต่ละช่อง */
+  --line:#b9a48c; --accent:#d9480f; --accent2:#2b8a3e; --sel:#ffe8a3; --hover:#fff4dc;
+  --split:#8a6d52;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font-family:"Sarabun","Leelawadee UI","Tahoma",sans-serif;font-size:var(--fs);overflow:hidden}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* ---------- แถบบน ---------- */
+.bar1{background:var(--bar1);color:var(--bar1ink);display:flex;align-items:center;gap:.5em;flex-wrap:wrap;
+  padding:.45em .7em;border-bottom:4px solid #3d1505}
+.bar1 h1{font-size:1.35em;margin:0 .6em 0 .1em;font-weight:800;white-space:nowrap}
+.bar1 .grp{display:flex;align-items:center;gap:.35em;background:rgba(255,255,255,.1);padding:.2em .45em;border-radius:8px;
+  border:1px solid rgba(255,255,255,.25)}
+.bar1 .lbl{opacity:.85;font-size:.85em}
+.bar1 button,.bar1 select{background:#fff7ee;color:#3d1505;border:2px solid #f0b98a;border-radius:7px;padding:.18em .55em;font-weight:600}
+.bar1 button:hover{background:#ffe3c4}
+#locLabel{max-width:14em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+.spacer{flex:1}
+
+/* ---------- แถบหมวด ---------- */
+.bar2{background:var(--bar2);border-bottom:3px solid var(--bar2line);padding:.4em .7em;display:flex;gap:.4em;flex-wrap:wrap;align-items:center}
+.chip{border:2px solid var(--bar2line);background:#fffaf3;border-radius:999px;padding:.12em .7em;font-weight:600;white-space:nowrap}
+.chip .n{font-size:.75em;color:var(--muted);margin-left:.25em}
+.chip.on{background:var(--accent);color:#fff;border-color:#8f2d07}
+.chip.on .n{color:#ffe3d1}
+.bar2 .sep{width:2px;align-self:stretch;background:var(--bar2line);margin:0 .3em}
+.bar2 input[type=search]{border:2px solid var(--bar2line);border-radius:8px;padding:.15em .5em;width:11em;background:#fff}
+
+/* ---------- พื้นที่หลัก ---------- */
+#main{flex:1;display:flex;flex-direction:column;min-height:0}
+#top{display:flex;min-height:0;flex:1}
+.pane{background:var(--panel);display:flex;flex-direction:column;min-width:0;min-height:0;border:2px solid var(--line)}
+.pane>.ph{background:var(--head);color:var(--headink);font-weight:700;padding:.3em .7em;display:flex;align-items:center;gap:.5em;flex-shrink:0}
+.pane>.ph .r{margin-left:auto;font-weight:400;font-size:.85em;opacity:.9}
+.pane>.pb{flex:1;min-height:0;overflow:auto}
+#left{width:360px;flex-shrink:0}
+#mapPane{flex:1}
+#map{flex:1;min-height:0}
+.splitV{width:9px;cursor:col-resize;background:var(--split);flex-shrink:0;position:relative}
+.splitH{height:9px;cursor:row-resize;background:var(--split);flex-shrink:0;position:relative}
+.splitV::after,.splitH::after{content:"";position:absolute;inset:0;margin:auto;background:#e8d5c0;border-radius:2px}
+.splitV::after{width:3px;height:40px}.splitH::after{height:3px;width:50px}
+.splitV:hover,.splitH:hover,.dragging{background:var(--accent)!important}
+#tablePane{height:280px;flex-shrink:0}
+
+/* ---------- ช่องสุ่ม ---------- */
+#randBox{padding:.7em;display:flex;flex-direction:column;gap:.6em}
+#btnRandom{font-size:1.6em;font-weight:800;padding:.45em;border-radius:14px;border:3px solid #8f2d07;
+  background:linear-gradient(#ff8a3d,#d9480f);color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.25);box-shadow:0 4px 0 #8f2d07}
+#btnRandom:active{transform:translateY(3px);box-shadow:0 1px 0 #8f2d07}
+#btnRandom:disabled{opacity:.5}
+.card{border:3px solid var(--accent);border-radius:12px;padding:.6em .75em;background:#fffaf3}
+.card.empty{border-style:dashed;color:var(--muted);text-align:center;padding:1.2em .5em}
+.card .nm{font-size:1.45em;font-weight:800;line-height:1.25;word-break:break-word}
+.card .rolling{opacity:.55}
+.card .meta{display:grid;grid-template-columns:auto 1fr;gap:.15em .6em;margin:.5em 0;font-size:.95em}
+.card .meta b{color:var(--muted);font-weight:600}
+.card .tag{display:inline-block;background:var(--bar2);border:1px solid var(--bar2line);border-radius:6px;padding:0 .4em;margin:.1em .2em .1em 0;font-size:.85em}
+.acts{display:grid;grid-template-columns:1fr 1fr;gap:.4em}
+.acts button,.btn{border:2px solid var(--line);background:#fff;border-radius:9px;padding:.3em .4em;font-weight:700}
+.acts button:hover,.btn:hover{background:var(--hover)}
+.btn.go{background:var(--accent2);color:#fff;border-color:#1b5e28}
+.btn.go:hover{background:#237a35}
+.btn.call{background:#1971c2;color:#fff;border-color:#0b4a85}
+.btn.call:hover{background:#1864ab}
+.acts .wide{grid-column:1/-1}
+#hist{font-size:.9em}
+#hist h4{margin:.3em 0;font-size:1em;color:var(--muted)}
+#hist div{padding:.15em .3em;border-bottom:1px dotted var(--line);cursor:pointer}
+#hist div:hover{background:var(--hover)}
+.note{font-size:.85em;color:var(--muted)}
+
+/* ---------- ตาราง (แบบ Excel) ---------- */
+#tbl{border-collapse:collapse;table-layout:fixed;width:max-content;min-width:100%}
+#tbl th,#tbl td{border:1px solid #cdbca8;padding:.2em .45em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+#tbl thead th{position:sticky;top:0;background:#e9dccb;z-index:2;font-weight:700;user-select:none;cursor:pointer;
+  border-bottom:3px solid var(--split)}
+#tbl thead th .rz{position:absolute;right:-4px;top:0;bottom:0;width:9px;cursor:col-resize;z-index:3}
+#tbl thead th .rz:hover,#tbl thead th .rz.dragging{background:var(--accent)}
+#tbl thead th .ar{font-size:.75em;margin-left:.3em;color:var(--accent)}
+#tbl tbody tr:nth-child(even){background:#faf6f0}
+#tbl tbody tr:hover{background:var(--hover)}
+#tbl tbody tr.sel{background:var(--sel)!important;outline:2px solid var(--accent)}
+#tbl td.num{text-align:right}
+#tbl td a{color:#1864ab}
+.mini{border:1px solid var(--line);background:#fff;border-radius:6px;padding:0 .4em;font-size:.85em;font-weight:700}
+.mini.go{background:var(--accent2);color:#fff;border-color:#1b5e28}
+
+/* ---------- สถานะ / หน้าต่างย่อย ---------- */
+#status{background:var(--head);color:var(--headink);padding:.2em .7em;font-size:.85em;display:flex;gap:1em;border-top:3px solid #000}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:2000}
+.dlg.show{display:flex}
+.dlg .box{background:#fff;border:3px solid var(--bar1);border-radius:12px;width:min(640px,94vw);max-height:90vh;display:flex;flex-direction:column}
+.dlg .box>h3{margin:0;background:var(--bar1);color:#fff;padding:.4em .8em;font-size:1.1em}
+.dlg .box>.c{padding:.8em;overflow:auto;display:flex;flex-direction:column;gap:.55em}
+.dlg .box>.f{padding:.6em .8em;border-top:2px solid var(--line);display:flex;gap:.5em;justify-content:flex-end}
+.dlg label{display:flex;flex-direction:column;gap:.15em;font-weight:600}
+.dlg input,.dlg select,.dlg textarea{border:2px solid var(--line);border-radius:8px;padding:.25em .5em;font:inherit}
+#logBox{font-family:Consolas,monospace;font-size:.8em;white-space:pre-wrap;background:#1e1e1e;color:#d4d4d4;padding:.6em;border-radius:8px;max-height:60vh;overflow:auto}
+.toast{position:fixed;bottom:2.4em;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:.5em 1em;border-radius:10px;z-index:3000;
+  opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.show{opacity:.95}
+.leaflet-container{font:inherit;font-size:.9em}
+.pin{background:#fff;border:2px solid var(--accent);border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.pin.big{width:46px;height:46px;font-size:27px;border-width:4px;border-color:#c92a2a;background:#fff3bf;z-index:1000!important}
+.me{width:22px;height:22px;border-radius:50%;background:#1971c2;border:4px solid #fff;box-shadow:0 0 0 3px #1971c2}
+body.picking #map{cursor:crosshair}
+#mtabs,#mlist{display:none}
+#qrBox{display:flex;flex-direction:column;align-items:center;gap:.5em}
+#qrBox img{width:240px;height:240px;border:6px solid #fff;outline:2px solid var(--line)}
+#qrBox .u{font-size:1.25em;font-weight:800;color:#1864ab;word-break:break-all;text-align:center}
+
+/* ================= มือถือ ================= */
+@media (max-width:820px){
+  html,body{font-size:var(--fs)}
+  .bar1{flex-wrap:nowrap;overflow-x:auto;padding:.35em .5em;gap:.35em;-webkit-overflow-scrolling:touch}
+  .bar1 h1{font-size:1.1em;margin-right:.2em}
+  .bar1 .lbl,.bar1 .spacer,#btnLog{display:none}
+  .bar1 .grp{flex-shrink:0}
+  .bar1 button,.bar1 select{padding:.25em .5em}
+  #locLabel{max-width:7em}
+  .bar2{flex-wrap:nowrap;overflow-x:auto;padding:.35em .5em;-webkit-overflow-scrolling:touch}
+  .bar2 > *,#chips,#priceChips{flex-shrink:0;white-space:nowrap}
+  .bar2 > span:first-child{display:none}
+  .bar2 input[type=search]{width:9em}
+  #main{flex-direction:column}
+  #top{flex-direction:column}
+  .splitV,.splitH,#status,#tablePane .ph .r{display:none!important}
+  .pane{display:none;border:none}
+  body[data-tab=rand] #left,body[data-tab=map] #mapPane,body[data-tab=list] #tablePane{display:flex;flex:1;width:auto!important;height:auto!important}
+  body[data-tab=list] #top{display:none}
+  body:not([data-tab=list]) #tablePane{display:none}
+  #tbl{display:none}
+  #mlist{display:block}
+  .mrow{border-bottom:2px solid var(--line);padding:.55em .7em;display:flex;gap:.6em;align-items:center}
+  .mrow.sel{background:var(--sel)}
+  .mrow .ic{font-size:1.6em}
+  .mrow .tx{flex:1;min-width:0}
+  .mrow .t1{font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mrow .t2{font-size:.85em;color:var(--muted)}
+  .mrow .bt{display:flex;flex-direction:column;gap:.3em}
+  .mrow .bt button{font-size:.9em;padding:.25em .5em}
+  #btnRandom{font-size:1.8em;padding:.6em}
+  .acts button{padding:.55em .4em}
+  #mtabs{display:flex;background:var(--head);border-top:3px solid #000;flex-shrink:0;padding-bottom:env(safe-area-inset-bottom)}
+  #mtabs button{flex:1;background:none;border:none;color:var(--headink);padding:.5em 0 .45em;font-weight:700;font-size:1em;border-top:4px solid transparent}
+  #mtabs button.on{background:#5a3f2a;border-top-color:var(--accent);color:#fff}
+  .dlg .box{width:96vw}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- แถบบน -->
+  <div class="bar1">
+    <h1>🍜 วันนี้กินอะไรดี</h1>
+    <div class="grp"><span class="lbl">📍 ตำแหน่ง</span><span id="locLabel">-</span>
+      <button id="btnGps" title="ใช้ GPS/ตำแหน่งของเครื่อง">ตำแหน่งฉัน</button>
+      <button id="btnPick" title="คลิกบนแผนที่เพื่อตั้งจุดค้นหา">จิ้มบนแผนที่</button></div>
+    <div class="grp"><span class="lbl">รัศมี</span>
+      <select id="selRadius"><option>0.5</option><option>1</option><option>2</option><option>3</option><option>5</option><option>8</option><option>10</option><option>15</option></select><span class="lbl">กม.</span></div>
+    <div class="grp"><span class="lbl">ข้อมูลจาก</span>
+      <select id="selSource"><option value="osm">OpenStreetMap (ฟรี)</option><option value="google">Google (มีเบอร์+ราคา)</option></select>
+      <button id="btnReload" title="ดึงข้อมูลใหม่ ไม่ใช้แคช">🔄 ค้นใหม่</button></div>
+    <span class="spacer"></span>
+    <div class="grp"><span class="lbl">ตัวหนังสือ</span><button id="fsDn">A−</button><button id="fsUp">A+</button></div>
+    <button id="btnAdd" title="เพิ่มร้านที่ไม่มีในแผนที่">➕ เพิ่มร้าน</button>
+    <button id="btnQR" title="ส่งลิงก์ให้เพื่อน">📤 แชร์</button>
+    <button id="btnLog">📜 Log</button>
+    <button id="btnSet">⚙ ตั้งค่า</button>
+  </div>
+  <!-- แถบหมวด -->
+  <div class="bar2" id="bar2">
+    <span style="font-weight:800">ประเภท:</span>
+    <span id="chips"></span>
+    <span class="sep"></span>
+    <button class="chip" id="chipOpen" title="ใช้ได้เฉพาะร้านที่มีข้อมูลเวลาเปิด">🕒 เปิดอยู่ตอนนี้</button>
+    <span id="priceChips"></span>
+    <span class="sep"></span>
+    <input type="search" id="q" placeholder="🔎 ค้นชื่อร้าน">
+  </div>
+
+  <div id="main">
+    <div id="top">
+      <div class="pane" id="left">
+        <div class="ph">🎲 สุ่มร้าน <span class="r" id="poolInfo"></span></div>
+        <div class="pb"><div id="randBox">
+          <button id="btnRandom">🎲 สุ่มเลย!</button>
+          <div id="card" class="card empty">กดปุ่มด้านบน<br>ให้โปรแกรมช่วยเลือกร้านให้ 😋<br><span class="note">สุ่มเฉพาะร้านในหมวด/ตัวกรองที่เลือกไว้</span></div>
+          <div id="hist"></div>
+        </div></div>
+      </div>
+      <div class="splitV" id="splitV"></div>
+      <div class="pane" id="mapPane">
+        <div class="ph">🗺️ แผนที่ <span class="r" id="mapInfo"></span></div>
+        <div id="map"></div>
+      </div>
+    </div>
+    <div class="splitH" id="splitH"></div>
+    <div class="pane" id="tablePane">
+      <div class="ph">📋 รายชื่อร้าน <span class="r">ลากขอบหัวคอลัมน์เพื่อยืด/หด • ดับเบิลคลิกขอบ = พอดีข้อความ • คลิกหัว = เรียง</span></div>
+      <div class="pb" id="tblWrap"><div id="mlist"></div><table id="tbl"><colgroup id="cg"></colgroup><thead><tr id="thr"></tr></thead><tbody id="tb"></tbody></table></div>
+    </div>
+  </div>
+  <div id="mtabs"><button data-t="rand" class="on">🎲 สุ่ม</button><button data-t="map">🗺️ แผนที่</button><button data-t="list">📋 รายชื่อ</button></div>
+  <div id="status"><span id="st1">กำลังเริ่ม…</span><span class="spacer"></span><span id="st2"></span></div>
+</div>
+
+<!-- หน้าต่าง: แก้ไขร้าน -->
+<div class="dlg" id="dlgEdit"><div class="box"><h3 id="edTitle">แก้ข้อมูลร้าน</h3><div class="c">
+  <label>เรทราคา
+    <select id="edPrice"><option value="">(ไม่ระบุ)</option><option>฿ (ถูก ~40-80 บาท)</option><option>฿฿ (กลาง ~80-200 บาท)</option><option>฿฿฿ (แพง ~200-500 บาท)</option><option>฿฿฿฿ (หรู 500+ บาท)</option></select></label>
+  <label>ช่วงราคา (พิมพ์เองได้ เช่น 50-120 บาท)<input id="edRange"></label>
+  <label>เบอร์โทร<input id="edPhone" inputmode="tel"></label>
+  <label>เวลาเปิด-ปิด<input id="edHours" placeholder="เช่น 08:00-20:00 ปิดวันจันทร์"></label>
+  <label>ประเภท (เลือกได้หลายอัน กด Ctrl ค้าง)<select id="edCats" multiple size="6"></select></label>
+  <label>โน้ต (เมนูเด็ด ฯลฯ)<input id="edNote"></label>
+  <label style="flex-direction:row;align-items:center;gap:.5em"><input type="checkbox" id="edFav"> ⭐ ร้านโปรด (สุ่มเจอบ่อยขึ้น)</label>
+  <label style="flex-direction:row;align-items:center;gap:.5em"><input type="checkbox" id="edHide"> 🙈 ซ่อนร้านนี้ (ไม่สุ่ม ไม่แสดง)</label>
+</div><div class="f"><button class="btn" id="edDel" style="margin-right:auto;display:none">🗑 ลบร้านนี้</button><button class="btn" data-close>ยกเลิก</button><button class="btn go" id="edSave">💾 บันทึก</button></div></div></div>
+
+<!-- หน้าต่าง: เพิ่มร้าน -->
+<div class="dlg" id="dlgAdd"><div class="box"><h3>➕ เพิ่มร้านเอง</h3><div class="c">
+  <div class="note" id="addPos">ตำแหน่ง: -</div>
+  <label>ชื่อร้าน<input id="adName"></label>
+  <label>เบอร์โทร<input id="adPhone"></label>
+  <label>เรทราคา<select id="adPrice"><option value="">(ไม่ระบุ)</option><option>฿</option><option>฿฿</option><option>฿฿฿</option><option>฿฿฿฿</option></select></label>
+  <label>ประเภท<select id="adCats" multiple size="6"></select></label>
+</div><div class="f"><button class="btn" data-close>ยกเลิก</button><button class="btn go" id="adSave">💾 เพิ่มร้าน</button></div></div></div>
+
+<!-- หน้าต่าง: ตั้งค่า -->
+<div class="dlg" id="dlgSet"><div class="box"><h3>⚙ ตั้งค่า</h3><div class="c">
+  <label>Google Places API key (ไม่บังคับ)
+    <input id="stKey" placeholder="AIza..."></label>
+  <div class="note">• ถ้าไม่ใส่ จะใช้ข้อมูล OpenStreetMap ฟรี (เบอร์/ราคาอาจไม่ครบ แก้เพิ่มเองได้ที่ปุ่ม ✏)<br>
+  • ถ้าใส่ key ของ Google จะได้เบอร์โทร เรทราคา คะแนนรีวิว และสถานะเปิด/ปิดจริง (Google มีโควตาฟรีรายเดือน เกินแล้วคิดเงิน)<br>
+  • สมัคร key: console.cloud.google.com → เปิด “Places API (New)” → Credentials → Create API key</div>
+  <div class="note" id="stVer"></div>
+</div><div class="f"><button class="btn" id="stClear">ลบ key</button><button class="btn" data-close>ปิด</button><button class="btn go" id="stSave">💾 บันทึก</button></div></div></div>
+
+<!-- หน้าต่าง: Log -->
+<div class="dlg" id="dlgLog"><div class="box" style="width:min(900px,96vw)"><h3>📜 บันทึกการใช้งาน (logs/app.log)</h3><div class="c"><div id="logBox"></div></div>
+<div class="f"><button class="btn" id="logRefresh">🔄</button><button class="btn" data-close>ปิด</button></div></div></div>
+
+<!-- หน้าต่าง: เปิดในมือถือ -->
+<div class="dlg" id="dlgQR"><div class="box"><h3>📤 แชร์ให้เพื่อน</h3><div class="c"><div id="qrBox"></div>
+<div class="acts"><button class="btn go" id="shShare">📤 ส่งลิงก์</button><button class="btn" id="shCopy">📋 คัดลอกลิงก์</button></div>
+<div class="note">• ให้เพื่อนสแกน QR หรือส่งลิงก์ไปทาง LINE ได้เลย ใช้ได้ทุกที่ ไม่ต้องลงแอป<br>
+• เพิ่มไอคอนลงหน้าจอ iPhone: เปิดใน Safari → ปุ่มแชร์ ⬆️ → "เพิ่มไปยังหน้าจอโฮม"<br>
+• ร้านโปรด ราคา/เบอร์ที่แก้ และร้านที่เพิ่มเอง เก็บในเครื่องของแต่ละคน (ไม่ปนกัน)</div></div>
+<div class="f"><button class="btn" data-close>ปิด</button></div></div></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ===== FoodPicker แบบไฟล์เดียว (ไม่ต้องมีเซิร์ฟเวอร์) =====
+   ทุกอย่างเก็บในเครื่องที่เปิด (localStorage) — ค้นร้านจาก OpenStreetMap ตรงจากเบราว์เซอร์
+   ฟังก์ชัน api() ข้างล่างเลียนแบบ API ของ server.py เพื่อให้หน้าจอใช้โค้ดชุดเดียวกัน */
+const STANDALONE = true;
+const VERSION = "1.2.0";
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem("fp_"+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("fp_"+k, JSON.stringify(v)); }catch(e){} },
+};
+const DEFAULT_CONFIG = {
+  location:{lat:12.7215, lon:101.0630, label:"บ้านฉาง ระยอง"}, radius_km:3, font_scale:1.0, font_scale_m:1.0,
+  source:"osm", google_api_key:"", window:null, layout:{left:380, tableH:280}, columns:{}, categories:[], open_only:false,
+};
+const CATEGORY_RULES = [
+  ["noodle","ก๋วยเตี๋ยว/บะหมี่",["noodle","ramen","ก๋วยเตี๋ยว","เส้น","บะหมี่","เย็นตาโฟ","เกาเหลา","ราเมง","ก๋วยจั๊บ"]],
+  ["thai","ตามสั่ง/อาหารไทย",["thai","ตามสั่ง","อาหารไทย","ข้าวแกง","แกง","กะเพรา","ข้าวผัด"]],
+  ["isan","ส้มตำ/อีสาน",["isan","isaan","laos","ส้มตำ","ตำ","อีสาน","ลาบ","ไก่ย่าง","แซ่บ","จิ้มจุ่ม"]],
+  ["chicken_rice","ข้าวมันไก่/ข้าวขาหมู",["chicken_rice","ข้าวมันไก่","ขาหมู","ข้าวหมูแดง","ข้าวหมกไก่"]],
+  ["bbq","หมูกระทะ/ปิ้งย่าง/ชาบู",["barbecue","bbq","grill","shabu","sukiyaki","hot_pot","หมูกระทะ","ปิ้งย่าง","ชาบู","สุกี้","ยากินิกุ","หมูจุ่ม"]],
+  ["seafood","ซีฟู้ด/อาหารทะเล",["seafood","fish","ซีฟู้ด","ทะเล","ปู","กุ้ง","หอย","ปลา"]],
+  ["japanese","ญี่ปุ่น/ซูชิ",["japanese","sushi","ญี่ปุ่น","ซูชิ","ราเมน"]],
+  ["korean","เกาหลี",["korean","เกาหลี"]],
+  ["chinese","จีน/ติ่มซำ",["chinese","dim_sum","dimsum","ติ่มซำ","โจ๊ก","จีน"]],
+  ["fastfood","ฟาสต์ฟู้ด/ไก่ทอด/พิซซ่า",["fast_food","burger","pizza","fried_chicken","sandwich","kfc","mcdonald","ไก่ทอด","เบอร์เกอร์","พิซซ่า","hamburger"]],
+  ["western","สเต๊ก/ฝรั่ง/นานาชาติ",["steak","western","italian","american","international","french","german","indian","mexican","สเต๊ก"]],
+  ["cafe","คาเฟ่/กาแฟ/ของหวาน",["cafe","coffee","dessert","ice_cream","bakery","cake","tea","bubble_tea","กาแฟ","คาเฟ่","ขนม","เบเกอรี่","ไอศกรีม","บิงซู","ชานม"]],
+  ["buffet","บุฟเฟ่ต์",["buffet","บุฟเฟ่ต์"]],
+];
+const CATEGORY_LABELS = Object.fromEntries(CATEGORY_RULES.map(r => [r[0], r[1]])); CATEGORY_LABELS.other = "อื่นๆ/ร้านอาหารทั่วไป";
+function classify(t){ t = (t||"").toLowerCase(); const c = CATEGORY_RULES.filter(r => r[2].some(w => t.includes(w))).map(r => r[0]); return c.length ? c : ["other"]; }
+
+function lsLog(msg){ const L = LS.get("log", []); const d = new Date(), p = n => String(n).padStart(2,"0");
+  L.push(`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}  ${msg}`);
+  LS.set("log", L.slice(-400)); }
+function getConfig(){ return {...DEFAULT_CONFIG, ...LS.get("config", {})}; }
+
+const OVERPASS = ["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter","https://overpass.private.coffee/api/interpreter"];
+async function searchOSM(lat, lon, r){
+  const q = `[out:json][timeout:25];(nwr["amenity"~"^(restaurant|fast_food|cafe|food_court|ice_cream|bbq)$"](around:${r},${lat},${lon});nwr["shop"~"^(bakery|pastry|coffee)$"](around:${r},${lat},${lon}););out center tags;`;
+  // ถามทุกเซิร์ฟเวอร์พร้อมกัน ใช้คำตอบแรกที่สำเร็จ แล้วยกเลิกที่เหลือ
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 70000);
+  let js;
+  try{
+    js = await Promise.any(OVERPASS.map(async u => {
+      const res = await fetch(u, {method:"POST", signal:ctl.signal, body:"data="+encodeURIComponent(q), headers:{"Content-Type":"application/x-www-form-urlencoded"}});
+      if (!res.ok) throw new Error(u.split("/")[2]+" HTTP "+res.status);
+      const j = await res.json(); if (!j.elements) throw new Error(u.split("/")[2]+" ข้อมูลผิดรูปแบบ"); return j; }));
+  }catch(e){ lsLog("OSM ใช้ไม่ได้ทุกเซิร์ฟเวอร์: " + (e.errors||[e]).map(x=>x.message).join(" | "));
+    throw new Error("เซิร์ฟเวอร์แผนที่ไม่ตอบ (อาจคนใช้เยอะ/เน็ตหลุด) ลองกด 🔄 ค้นใหม่ อีกครั้ง หรือลดรัศมี"); }
+  finally{ clearTimeout(timer); }
+  ctl.abort();
+  const out = [];
+  for (const el of js.elements || []){
+    const tg = el.tags || {}; const name = tg["name:th"] || tg.name || tg["name:en"]; if (!name) continue;
+    const la = el.lat ?? el.center?.lat, lo = el.lon ?? el.center?.lon; if (la == null) continue;
+    const kind = tg.amenity || tg.shop || "", cuisine = tg.cuisine || "";
+    out.push({ id:`osm:${el.type}/${el.id}`, name, lat:la, lon:lo,
+      phone: tg.phone || tg["contact:phone"] || tg["contact:mobile"] || "", price:"", rating:null, rating_count:null,
+      hours: tg.opening_hours || "", open_now:null,
+      address: [tg["addr:housenumber"], tg["addr:street"], tg["addr:subdistrict"], tg["addr:district"]].filter(Boolean).join(" "),
+      cuisine: cuisine.replace(/;/g, ", "), kind, cats: classify([kind, cuisine, name, tg["name:en"]||"", tg.brand||""].join(" ")),
+      website: tg.website || tg["contact:facebook"] || "", source:"OSM" });
+  }
+  return out;
+}
+const PRICE_MAP = {PRICE_LEVEL_FREE:"ฟรี",PRICE_LEVEL_INEXPENSIVE:"฿",PRICE_LEVEL_MODERATE:"฿฿",PRICE_LEVEL_EXPENSIVE:"฿฿฿",PRICE_LEVEL_VERY_EXPENSIVE:"฿฿฿฿"};
+async function searchGoogle(lat, lon, r, key){
+  const fields = ["id","displayName","location","nationalPhoneNumber","priceLevel","priceRange","rating","userRatingCount","primaryType",
+    "types","shortFormattedAddress","googleMapsUri","currentOpeningHours.openNow","websiteUri"].map(f=>"places."+f).join(",");
+  const groups = [["restaurant"],["thai_restaurant"],["fast_food_restaurant","hamburger_restaurant","pizza_restaurant"],
+    ["cafe","coffee_shop","dessert_shop","bakery","ice_cream_shop"],
+    ["seafood_restaurant","barbecue_restaurant","japanese_restaurant","korean_restaurant","chinese_restaurant","buffet_restaurant","ramen_restaurant","steak_house"]];
+  const seen = new Set(), out = [];
+  for (const types of groups) for (const rank of ["DISTANCE","POPULARITY"]){
+    const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {method:"POST",
+      headers:{"Content-Type":"application/json","X-Goog-Api-Key":key,"X-Goog-FieldMask":fields},
+      body: JSON.stringify({includedTypes:types, maxResultCount:20, rankPreference:rank, languageCode:"th",
+        locationRestriction:{circle:{center:{latitude:lat, longitude:lon}, radius:Math.min(r,50000)}}})});
+    const js = await res.json(); if (!res.ok) throw new Error("Google ตอบกลับผิดพลาด: " + (js.error?.message || res.status));
+    for (const p of js.places || []){
+      if (seen.has(p.id)) continue; seen.add(p.id);
+      let price = PRICE_MAP[p.priceLevel] || ""; const pr = p.priceRange;
+      if (pr){ const a = pr.startPrice?.units, b = pr.endPrice?.units; const rng = a && b ? `${a}-${b} บาท` : a ? `${a}+ บาท` : ""; price = (price+" "+rng).trim(); }
+      const name = p.displayName?.text || "?";
+      out.push({ id:"g:"+p.id, name, lat:p.location.latitude, lon:p.location.longitude, phone:p.nationalPhoneNumber||"", price,
+        rating:p.rating ?? null, rating_count:p.userRatingCount ?? null, hours:"", open_now:p.currentOpeningHours?.openNow ?? null,
+        address:p.shortFormattedAddress||"", cuisine:(p.primaryType||"").replace(/_/g," "), kind:p.primaryType||"",
+        cats:classify((p.types||[]).join(" ")+" "+name), website:p.websiteUri||"", gmaps:p.googleMapsUri||"", source:"Google" });
+    }
+  }
+  return out;
+}
+
+async function api(path, body){
+  const [p, qs] = path.split("?"); const q = new URLSearchParams(qs || "");
+  const custom = () => LS.get("custom", {edits:{}, added:[]});
+  switch (p){
+    case "/api/config":
+      if (body){ const c = getConfig();
+        for (const [k, v] of Object.entries(body)){
+          if (k === "google_api_key"){ if (v != null && !v.includes("•")){ c[k] = v.trim(); lsLog(v.trim() ? "อัปเดต Google API key" : "ลบ Google API key"); } }
+          else if (k in DEFAULT_CONFIG) c[k] = v; }
+        LS.set("config", c); return {ok:true}; }
+      { const c = getConfig(); return {...c, has_google_key: !!c.google_api_key,
+          google_api_key: c.google_api_key ? "••••••••"+c.google_api_key.slice(-4) : "", version: VERSION, category_labels: CATEGORY_LABELS,
+          first_run: !LS.get("config", null)}; }
+    case "/api/search": {
+      const lat = +q.get("lat"), lon = +q.get("lon"), r = Math.round(+q.get("r")*1000), src = q.get("src"), force = q.get("force") === "1";
+      const key = getConfig().google_api_key;
+      if (src === "google" && !key) throw new Error("ยังไม่ได้ใส่ Google API key (ปุ่ม ⚙ ตั้งค่า) — หรือเปลี่ยนแหล่งข้อมูลเป็น OpenStreetMap");
+      const ck = `${src}|${lat.toFixed(3)}|${lon.toFixed(3)}|${r}`; const cache = LS.get("cache", null);
+      let places, cached = false;
+      if (!force && cache && cache.k === ck && Date.now() - cache.t < 24*3600e3){ places = cache.places; cached = true; lsLog(`ค้นร้าน (แคช) ได้ ${places.length} ร้าน`); }
+      else { places = src === "google" ? await searchGoogle(lat, lon, r, key) : await searchOSM(lat, lon, r);
+        LS.set("cache", {k:ck, t:Date.now(), places}); lsLog(`ค้นร้าน ${src} ที่ ${lat.toFixed(5)},${lon.toFixed(5)} r=${r/1000}km ได้ ${places.length} ร้าน`); }
+      const c = custom();
+      return {places: places.concat((c.added||[]).map(x => ({...x, source:"เพิ่มเอง"}))), edits: c.edits || {}, cached};
+    }
+    case "/api/edit": { const c = custom(); const {id, ...rest} = body; c.edits[id] = {...(c.edits[id]||{}), ...rest}; LS.set("custom", c);
+      lsLog(`แก้ข้อมูลร้าน ${body.name || id}`); return {ok:true}; }
+    case "/api/add": { const c = custom();
+      const pl = {id:"my:"+Date.now(), name:body.name||"ร้านใหม่", lat:+body.lat, lon:+body.lon, phone:body.phone||"", price:body.price||"",
+        rating:null, rating_count:null, hours:"", open_now:null, address:"", cuisine:"", kind:"restaurant",
+        cats:(body.cats && body.cats.length) ? body.cats : classify(body.name), website:""};
+      (c.added = c.added || []).push(pl); LS.set("custom", c); lsLog(`เพิ่มร้านเอง: ${pl.name}`); return {ok:true, place:pl}; }
+    case "/api/delete_added": { const c = custom(); c.added = (c.added||[]).filter(x => x.id !== body.id); LS.set("custom", c); lsLog(`ลบร้านที่เพิ่มเอง ${body.id}`); return {ok:true}; }
+    case "/api/event": lsLog(String(body.msg||"").slice(0,500)); return {ok:true};
+    case "/api/log": return {lines: LS.get("log", []).slice(-(+q.get("n")||200))};
+    case "/api/lan": return {urls: [location.href.split("#")[0]]};
+  }
+  throw new Error("ไม่รู้จักคำสั่ง " + p);
+}
+
+</script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const ev = msg => api("/api/event", {msg}).catch(()=>{});
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function toast(t, ms=2200){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.remove("show"), ms); }
+
+const MOBILE = matchMedia("(max-width:820px)");
+let CFG = {}, LABELS = {}, PLACES = [], EDITS = {}, VIEW = [];
+let selCats = new Set(), selPrices = new Set(), openOnly = false, sortCol = "dist", sortDir = 1;
+let picked = null, rejected = new Set(), history = [];
+const ICON = {noodle:"🍜",thai:"🍛",isan:"🥗",chicken_rice:"🍗",bbq:"🥓",seafood:"🦐",japanese:"🍣",korean:"🇰🇷",chinese:"🥟",
+  fastfood:"🍔",western:"🥩",cafe:"☕",buffet:"🍽️",other:"🍴"};
+const PRICES = ["฿","฿฿","฿฿฿","฿฿฿฿","ไม่ระบุ"];
+
+/* ---------------- บันทึกค่าลงเครื่อง ---------------- */
+let saveT;
+function saveCfg(part){ Object.assign(CFG, part); clearTimeout(saveT); const p = {...part};
+  saveT = setTimeout(() => api("/api/config", collectCfg()).catch(()=>{}), 400); }
+function collectCfg(){ const c = {location:CFG.location, radius_km:CFG.radius_km, source:CFG.source, categories:[...selCats], open_only:openOnly};
+  if (MOBILE.matches) c.font_scale_m = CFG.font_scale_m;
+  else Object.assign(c, {font_scale:CFG.font_scale, window:CFG.window, layout:CFG.layout, columns:CFG.columns});
+  return c; }
+
+/* จำขนาด/ตำแหน่งหน้าต่าง */
+let lastWin = "";
+function trackWindow(){ if (MOBILE.matches || !CFG.window) return; const w={w:window.outerWidth,h:window.outerHeight,x:window.screenX,y:window.screenY};
+  const k=JSON.stringify(w); if (k!==lastWin && w.w>200 && w.h>200){ lastWin=k; CFG.window=w; saveCfg({window:w}); } }
+setInterval(trackWindow, 1500); window.addEventListener("resize", trackWindow);
+window.addEventListener("pagehide", () => api("/api/config", collectCfg()));
+
+/* ---------------- ขนาดตัวหนังสือ ---------------- */
+const FK = () => MOBILE.matches ? "font_scale_m" : "font_scale";
+function applyFont(){ document.documentElement.style.setProperty("--fs", ((MOBILE.matches?17:18)*(CFG[FK()]||1)).toFixed(1)+"px"); setTimeout(()=>map&&map.invalidateSize(),50); }
+$("#fsUp").onclick = () => { CFG[FK()] = Math.min(2, +((CFG[FK()]||1)+0.1).toFixed(2)); applyFont(); saveCfg({}); };
+$("#fsDn").onclick = () => { CFG[FK()] = Math.max(0.7, +((CFG[FK()]||1)-0.1).toFixed(2)); applyFont(); saveCfg({}); };
+MOBILE.addEventListener("change", () => { applyFont(); renderBody(); });
+
+/* ---------------- แท็บมือถือ ---------------- */
+function setTab(t){ document.body.dataset.tab = t; document.querySelectorAll("#mtabs button").forEach(b=>b.classList.toggle("on", b.dataset.t===t));
+  if (t==="map") setTimeout(()=>{ map.invalidateSize(); picked && map.setView([picked.lat,picked.lon]); }, 60); }
+document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => setTab(b.dataset.t));
+document.body.dataset.tab = "rand";
+
+/* ---------------- เปิดในมือถือ (QR) ---------------- */
+$("#shCopy") && ($("#shCopy").onclick = () => { const u = location.href.split("#")[0];
+  (navigator.clipboard ? navigator.clipboard.writeText(u) : Promise.reject()).then(()=>toast("คัดลอกลิงก์แล้ว"), ()=>toast(u, 5000)); });
+$("#shShare") && ($("#shShare").onclick = () => { const u = location.href.split("#")[0];
+  if (navigator.share) navigator.share({title:"วันนี้กินอะไรดี", text:"สุ่มร้านอาหารใกล้ตัว 🍜", url:u}).catch(()=>{}); else $("#shCopy").click(); });
+$("#btnQR").onclick = async () => {
+  $("#dlgQR").classList.add("show"); $("#qrBox").innerHTML = "กำลังหาที่อยู่…";
+  try{ const j = await api("/api/lan");
+    $("#qrBox").innerHTML = j.urls.length ? j.urls.map((u,i)=> (i===0?`<img alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?size=480x480&margin=0&data=${encodeURIComponent(u)}">`:"")+`<div class="u">${esc(u)}</div>`).join("")
+      : "หาไอพีของเครื่องไม่เจอ"; }
+  catch(e){ $("#qrBox").textContent = e.message; }
+};
+
+/* ---------------- ตัวแบ่งช่อง ลากปรับขนาดได้ ---------------- */
+function dragSplit(el, onMove){
+  el.addEventListener("mousedown", e => { e.preventDefault(); el.classList.add("dragging"); document.body.style.userSelect="none";
+    const mv = ev => onMove(ev), up = () => { el.classList.remove("dragging"); document.body.style.userSelect="";
+      removeEventListener("mousemove", mv); removeEventListener("mouseup", up); map.invalidateSize(); saveCfg({}); };
+    addEventListener("mousemove", mv); addEventListener("mouseup", up); });
+}
+dragSplit($("#splitV"), e => { const w = Math.max(240, Math.min(innerWidth-300, e.clientX)); $("#left").style.width = w+"px"; CFG.layout.left = w; map.invalidateSize(); });
+dragSplit($("#splitH"), e => { const r = $("#main").getBoundingClientRect(); const h = Math.max(90, Math.min(r.height-150, r.bottom - e.clientY));
+  $("#tablePane").style.height = h+"px"; CFG.layout.tableH = h; map.invalidateSize(); });
+
+/* ---------------- แผนที่ ---------------- */
+let map, meMarker, radiusCircle, layer, markers = {}, picking = null;
+function initMap(){
+  map = L.map("map", {zoomControl:true}).setView([CFG.location.lat, CFG.location.lon], 15);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
+  layer = L.layerGroup().addTo(map);
+  map.on("click", e => {
+    if (picking === "loc"){ setLocation(e.latlng.lat, e.latlng.lng, "จุดที่จิ้มบนแผนที่"); stopPick(); search(); if (MOBILE.matches) toast("ตั้งตำแหน่งแล้ว กำลังค้นร้าน…"); }
+    else if (picking === "add"){ stopPick(); openAdd(e.latlng.lat, e.latlng.lng); }
+  });
+}
+function stopPick(){ picking=null; document.body.classList.remove("picking"); $("#mapInfo").textContent=""; }
+function drawMe(){
+  const ll=[CFG.location.lat, CFG.location.lon];
+  if (meMarker) meMarker.remove(); if (radiusCircle) radiusCircle.remove();
+  meMarker = L.marker(ll, {icon:L.divIcon({className:"", html:'<div class="me"></div>', iconSize:[22,22]}), zIndexOffset:900}).addTo(map).bindTooltip("คุณอยู่ที่นี่");
+  radiusCircle = L.circle(ll, {radius:CFG.radius_km*1000, color:"#1971c2", weight:2, fillOpacity:.04}).addTo(map);
+}
+function drawMarkers(){
+  layer.clearLayers(); markers = {};
+  for (const p of VIEW){
+    const big = picked && picked.id === p.id;
+    const m = L.marker([p.lat,p.lon], {icon:L.divIcon({className:"", html:`<div class="pin${big?" big":""}">${p.fav?"⭐":ICON[p.cats[0]]||"🍴"}</div>`,
+      iconSize: big?[46,46]:[30,30], iconAnchor: big?[23,23]:[15,15]}), zIndexOffset: big?1000:0});
+    m.bindTooltip(`<b>${esc(p.name)}</b><br>${p.dist.toFixed(2)} กม. ${esc(p.priceTxt)}`);
+    m.on("click", () => showPick(p, false));
+    m.addTo(layer); markers[p.id] = m;
+  }
+  $("#mapInfo").textContent = `${VIEW.length} ร้านบนแผนที่`;
+}
+
+/* ---------------- ตำแหน่ง ---------------- */
+function setLocation(lat, lon, label){ CFG.location = {lat, lon, label}; $("#locLabel").textContent = label; $("#locLabel").title = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  saveCfg({}); drawMe(); map.setView([lat,lon], map.getZoom()); ev(`ตั้งตำแหน่ง: ${label} (${lat.toFixed(5)},${lon.toFixed(5)})`); }
+$("#btnGps").onclick = () => {
+  if (!navigator.geolocation) return toast("เครื่องนี้หาตำแหน่งไม่ได้ ใช้ 'จิ้มบนแผนที่' แทน");
+  if (!window.isSecureContext){ toast("บนมือถือที่เปิดผ่าน http ใช้ GPS ไม่ได้ — แตะจุดบนแผนที่แทนนะ", 4500); return $("#btnPick").click(); }
+  toast("กำลังหาตำแหน่ง…");
+  navigator.geolocation.getCurrentPosition(
+    pos => { setLocation(pos.coords.latitude, pos.coords.longitude, `ตำแหน่งปัจจุบัน (±${Math.round(pos.coords.accuracy)} ม.)`); search(); },
+    err => { toast("หาตำแหน่งไม่ได้: " + err.message + " — ลองใช้ 'จิ้มบนแผนที่'", 4000); if (!PLACES.length) search(); }, {enableHighAccuracy:true, timeout:15000});
+};
+$("#btnPick").onclick = () => { if (MOBILE.matches) setTab("map"); picking = "loc"; document.body.classList.add("picking"); $("#mapInfo").textContent = "👉 คลิกจุดบนแผนที่ที่อยากค้นร้านรอบๆ"; toast("คลิกบนแผนที่เพื่อตั้งตำแหน่ง"); };
+$("#selRadius").onchange = e => { CFG.radius_km = +e.target.value; saveCfg({}); drawMe(); search(); };
+$("#selSource").onchange = e => { CFG.source = e.target.value; saveCfg({}); search(); };
+$("#btnReload").onclick = () => search(true);
+
+/* ---------------- ค้นร้าน ---------------- */
+function km(a,b,c,d){ const R=6371, r=x=>x*Math.PI/180, dl=r(c-a), dn=r(d-b);
+  const h=Math.sin(dl/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dn/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+async function search(force=false){
+  $("#st1").textContent = "⏳ กำลังค้นร้านอาหารรอบตัว…"; $("#btnRandom").disabled = true;
+  try{
+    const {lat, lon} = CFG.location;
+    const j = await api(`/api/search?lat=${lat}&lon=${lon}&r=${CFG.radius_km}&src=${CFG.source}${force?"&force=1":""}`);
+    EDITS = j.edits || {};
+    PLACES = j.places.map(p => decorate(p)).filter(p => p.dist <= CFG.radius_km*1.05 || p.source==="เพิ่มเอง");
+    $("#st1").textContent = `✅ พบ ${PLACES.length} ร้าน ในรัศมี ${CFG.radius_km} กม. (${CFG.source==="google"?"Google":"OpenStreetMap"}${j.cached?" • แคชวันนี้":""})`;
+    rejected.clear(); refresh();
+  }catch(e){ $("#st1").textContent = "❌ " + e.message; toast(e.message, 5000); }
+  $("#btnRandom").disabled = false;
+}
+function decorate(p){
+  const e = EDITS[p.id] || {};
+  const q = {...p};
+  if (e.cats && e.cats.length) q.cats = e.cats;
+  q.phone = e.phone || p.phone || "";
+  q.hours = e.hours || p.hours || "";
+  q.note = e.note || "";
+  q.fav = !!e.fav; q.hide = !!e.hide;
+  const lvl = (e.price || "").split(" ")[0] || (p.price||"").split(" ")[0] || "";
+  q.level = PRICES.includes(lvl) ? lvl : "";
+  q.priceTxt = [q.level || "", e.range || ((p.price||"").split(" ").slice(1).join(" "))].filter(Boolean).join(" ") || "";
+  q.dist = km(CFG.location.lat, CFG.location.lon, p.lat, p.lon);
+  q.openNow = p.open_now ?? isOpenNow(q.hours);
+  return q;
+}
+/* อ่านเวลาเปิดแบบ OSM ง่ายๆ เช่น "Mo-Su 08:00-20:00" หรือ "08:00-20:00" */
+function isOpenNow(h){
+  if (!h) return null; if (/24\/7/.test(h)) return true;
+  const days=["Su","Mo","Tu","We","Th","Fr","Sa"], now=new Date(), d=now.getDay(), mins=now.getHours()*60+now.getMinutes();
+  let any=null;
+  for (const part of h.split(";")){
+    const s=part.trim(); const m=s.match(/^(?:([A-Za-z,\- ]+)\s)?([\d:,\- ]+)$/); if(!m) continue;
+    if (m[1]){ let ok=false; for (const seg of m[1].split(",")){ const [a,b]=seg.trim().split("-"); const ia=days.indexOf(a), ib=b?days.indexOf(b):ia;
+        if (ia<0) continue; for(let i=ia;;i=(i+1)%7){ if(i===d) ok=true; if(i===ib) break; } } if(!ok) continue; }
+    any=false;
+    for (const rg of m[2].split(",")){ const t=rg.trim().match(/(\d+):(\d+)-(\d+):(\d+)/); if(!t) continue;
+      const a=+t[1]*60+ +t[2], b=+t[3]*60+ +t[4]; if (b>a ? (mins>=a&&mins<b) : (mins>=a||mins<b)) return true; }
+  }
+  return any;
+}
+
+/* ---------------- ตัวกรอง ---------------- */
+function buildChips(){
+  const counts = {}; for (const p of PLACES) if(!p.hide) for (const c of p.cats) counts[c]=(counts[c]||0)+1;
+  const keys = Object.keys(LABELS).filter(k => counts[k]);
+  let h = `<button class="chip ${selCats.size?"":"on"}" data-c="*">ทั้งหมด<span class="n">${PLACES.filter(p=>!p.hide).length}</span></button> `;
+  for (const k of keys) h += `<button class="chip ${selCats.has(k)?"on":""}" data-c="${k}">${ICON[k]} ${esc(LABELS[k])}<span class="n">${counts[k]}</span></button> `;
+  $("#chips").innerHTML = h;
+  $("#chips").querySelectorAll(".chip").forEach(b => b.onclick = () => { const c=b.dataset.c;
+    if (c==="*") selCats.clear(); else selCats.has(c)?selCats.delete(c):selCats.add(c); saveCfg({}); refresh(); });
+  $("#priceChips").innerHTML = PRICES.map(p=>`<button class="chip ${selPrices.has(p)?"on":""}" data-p="${p}">${p}</button>`).join(" ");
+  $("#priceChips").querySelectorAll(".chip").forEach(b => b.onclick = () => { const p=b.dataset.p; selPrices.has(p)?selPrices.delete(p):selPrices.add(p); refresh(); });
+  $("#chipOpen").classList.toggle("on", openOnly);
+}
+$("#chipOpen").onclick = () => { openOnly=!openOnly; saveCfg({}); refresh(); };
+$("#q").oninput = () => refresh();
+function filtered(){
+  const q = $("#q").value.trim().toLowerCase();
+  return PLACES.filter(p => !p.hide
+    && (!selCats.size || p.cats.some(c => selCats.has(c)))
+    && (!selPrices.size || selPrices.has(p.level || "ไม่ระบุ"))
+    && (!openOnly || p.openNow === true)
+    && (!q || p.name.toLowerCase().includes(q) || (p.cuisine||"").toLowerCase().includes(q)));
+}
+function refresh(){ buildChips(); VIEW = filtered(); sortView(); renderTable(); drawMarkers();
+  $("#poolInfo").textContent = `สุ่มจาก ${VIEW.filter(p=>!rejected.has(p.id)).length} ร้าน`; }
+
+/* ---------------- สุ่ม ---------------- */
+$("#btnRandom").onclick = () => {
+  let pool = VIEW.filter(p => !rejected.has(p.id));
+  if (!pool.length && VIEW.length){ rejected.clear(); pool = VIEW.slice(); toast("วนครบทุกร้านแล้ว เริ่มสุ่มใหม่ทั้งหมด"); }
+  if (!pool.length) return toast("ไม่มีร้านให้สุ่ม ลองเพิ่มรัศมีหรือเลือกประเภทอื่น", 3500);
+  const weights = pool.map(p => p.fav ? 3 : 1), tot = weights.reduce((a,b)=>a+b,0);
+  let r = Math.random()*tot, win = pool[pool.length-1];
+  for (let i=0;i<pool.length;i++){ r-=weights[i]; if (r<=0){ win=pool[i]; break; } }
+  $("#btnRandom").disabled = true; let n=0;
+  const roll = setInterval(() => {
+    const t = pool[Math.floor(Math.random()*pool.length)];
+    $("#card").className="card"; $("#card").innerHTML = `<div class="nm rolling">${ICON[t.cats[0]]||"🍴"} ${esc(t.name)}</div>`;
+    if (++n > 14){ clearInterval(roll); $("#btnRandom").disabled=false; showPick(win, true); }
+  }, 70);
+};
+function catText(p){ return p.cats.map(c => `<span class="tag">${ICON[c]||""} ${esc(LABELS[c]||c)}</span>`).join(""); }
+function navUrl(p){ return `https://www.google.com/maps/dir/?api=1&origin=${CFG.location.lat},${CFG.location.lon}&destination=${p.lat},${p.lon}&travelmode=driving`; }
+function gmUrl2(p){ return p.gmaps || `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`; }
+function showPick(p, fromRandom){
+  picked = p; if (MOBILE.matches && document.body.dataset.tab !== "rand") setTab("rand");
+  const open = p.openNow===true ? "🟢 เปิดอยู่" : p.openNow===false ? "🔴 ปิดอยู่" : "";
+  $("#card").className = "card";
+  $("#card").innerHTML = `
+    <div class="nm">${p.fav?"⭐ ":""}${ICON[p.cats[0]]||"🍴"} ${esc(p.name)}</div>
+    <div>${catText(p)}</div>
+    <div class="meta">
+      <b>ระยะทาง</b><span>${p.dist.toFixed(2)} กม. (ตรงๆ)</span>
+      <b>ราคา</b><span>${esc(p.priceTxt) || '<span class="note">ไม่ระบุ — กด ✏ ใส่เองได้</span>'}</span>
+      <b>เบอร์</b><span>${p.phone ? `<b style="color:#1864ab;font-size:1.1em">${esc(p.phone)}</b>` : '<span class="note">ไม่มีข้อมูล</span>'}</span>
+      ${p.rating ? `<b>คะแนน</b><span>⭐ ${p.rating} (${p.rating_count||0} รีวิว)</span>` : ""}
+      ${p.hours||open ? `<b>เวลา</b><span>${open} ${esc(p.hours)}</span>` : ""}
+      ${p.address ? `<b>ที่อยู่</b><span>${esc(p.address)}</span>` : ""}
+      ${p.cuisine ? `<b>อาหาร</b><span>${esc(p.cuisine)}</span>` : ""}
+      ${p.note ? `<b>โน้ต</b><span>${esc(p.note)}</span>` : ""}
+      <b>พิกัด</b><span>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</span>
+    </div>
+    <div class="acts">
+      <button class="btn go wide" id="cGo">🧭 นำทางไปร้านนี้</button>
+      ${p.phone ? `<button class="btn call" id="cCall">📞 โทร</button><button class="btn" id="cCopy">📋 คัดลอกเบอร์</button>` : ""}
+      <button class="btn" id="cMap">🗺 เปิด Google Maps</button>
+      ${MOBILE.matches ? `<button class="btn" id="cPin">📍 ดูบนแผนที่</button>` : ""}
+      <button class="btn" id="cEdit">✏ แก้ข้อมูล</button>
+      ${fromRandom || rejected.size ? `<button class="btn wide" id="cNo">🙅 ไม่เอาร้านนี้ สุ่มใหม่</button>` : ""}
+    </div>`;
+  $("#cGo").onclick = () => { ev(`นำทางไป: ${p.name}`); window.open(navUrl(p), "_blank"); };
+  $("#cMap").onclick = () => window.open(gmUrl2(p), "_blank");
+  $("#cEdit").onclick = () => openEdit(p);
+  if ($("#cPin")) $("#cPin").onclick = () => setTab("map");
+  if (p.phone){ $("#cCall").onclick = () => { ev(`โทรหา: ${p.name} ${p.phone}`); location.href = "tel:" + p.phone.replace(/[^\d+]/g,""); };
+    $("#cCopy").onclick = () => { navigator.clipboard.writeText(p.phone); toast("คัดลอกเบอร์แล้ว " + p.phone); }; }
+  const no = $("#cNo"); if (no) no.onclick = () => { rejected.add(p.id); refresh(); $("#btnRandom").click(); };
+  map.setView([p.lat, p.lon], Math.max(map.getZoom(), 16)); drawMarkers();
+  markers[p.id] && markers[p.id].openTooltip();
+  selectRow(p.id);
+  if (fromRandom){ history.unshift({id:p.id, name:p.name, t:new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}); history = history.slice(0,8);
+    renderHist(); ev(`สุ่มได้: ${p.name} (${p.cats.map(c=>LABELS[c]).join(", ")}, ${p.dist.toFixed(2)} กม.)`); }
+}
+function renderHist(){
+  $("#hist").innerHTML = history.length ? "<h4>🕘 สุ่มล่าสุด</h4>" + history.map(h=>`<div data-id="${h.id}">${h.t} — ${esc(h.name)}</div>`).join("") : "";
+  $("#hist").querySelectorAll("div[data-id]").forEach(d => d.onclick = () => { const p = PLACES.find(x=>x.id===d.dataset.id); p && showPick(p,false); });
+}
+
+/* ---------------- ตารางแบบ Excel ---------------- */
+const COLS = [
+  {k:"fav", t:"⭐", w:44, v:p=>p.fav?"⭐":"", s:p=>p.fav?0:1},
+  {k:"name", t:"ชื่อร้าน", w:260, v:p=>esc(p.name), s:p=>p.name},
+  {k:"cat", t:"ประเภท", w:190, v:p=>p.cats.map(c=>(ICON[c]||"")+" "+esc(LABELS[c]||c)).join(", "), s:p=>LABELS[p.cats[0]]||""},
+  {k:"dist", t:"ระยะ (กม.)", w:105, num:1, v:p=>p.dist.toFixed(2), s:p=>p.dist},
+  {k:"price", t:"ราคา", w:120, v:p=>esc(p.priceTxt), s:p=>p.level? PRICES.indexOf(p.level):9},
+  {k:"phone", t:"เบอร์โทร", w:140, v:p=>p.phone?`<a href="tel:${esc(p.phone.replace(/[^\d+]/g,""))}">${esc(p.phone)}</a>`:"", s:p=>p.phone||"~"},
+  {k:"rating", t:"คะแนน", w:95, num:1, v:p=>p.rating?`${p.rating} (${p.rating_count||0})`:"", s:p=>-(p.rating||0)},
+  {k:"open", t:"เปิด/ปิด", w:150, v:p=>(p.openNow===true?"🟢 ":p.openNow===false?"🔴 ":"")+esc(p.hours), s:p=>p.openNow===true?0:p.openNow===false?2:1},
+  {k:"addr", t:"ที่อยู่ / อาหาร", w:240, v:p=>esc([p.address,p.cuisine,p.note].filter(Boolean).join(" • ")), s:p=>p.address||"~"},
+  {k:"src", t:"ที่มา", w:90, v:p=>esc(p.source), s:p=>p.source},
+  {k:"act", t:"จัดการ", w:220, v:p=>`<button class="mini go" data-go="${p.id}">🧭 นำทาง</button> <button class="mini" data-ed="${p.id}">✏ แก้</button> <button class="mini" data-pk="${p.id}">👁 ดู</button>`, s:p=>0},
+];
+function colW(c){ return (CFG.columns && CFG.columns[c.k]) || c.w; }
+function buildHead(){
+  $("#cg").innerHTML = COLS.map(c=>`<col data-k="${c.k}" style="width:${colW(c)}px">`).join("");
+  $("#thr").innerHTML = COLS.map(c=>`<th data-k="${c.k}" style="position:sticky">${c.t}<span class="ar">${sortCol===c.k?(sortDir>0?"▲":"▼"):""}</span><span class="rz"></span></th>`).join("");
+  $("#thr").querySelectorAll("th").forEach(th => {
+    const k = th.dataset.k, col = $(`#cg col[data-k="${k}"]`), rz = th.querySelector(".rz");
+    th.onclick = e => { if (e.target===rz || k==="act") return; if (sortCol===k) sortDir*=-1; else { sortCol=k; sortDir=1; } sortView(); buildHead(); renderBody(); };
+    rz.addEventListener("mousedown", e => { e.preventDefault(); e.stopPropagation(); rz.classList.add("dragging");
+      const x0=e.clientX, w0=col.getBoundingClientRect().width || colW(COLS.find(c=>c.k===k));
+      const mv = ev2 => { const w=Math.max(30, w0 + ev2.clientX - x0); col.style.width=w+"px"; };
+      const up = () => { rz.classList.remove("dragging"); removeEventListener("mousemove",mv); removeEventListener("mouseup",up);
+        CFG.columns = {...CFG.columns, [k]: Math.round(parseFloat(col.style.width))}; saveCfg({}); };
+      addEventListener("mousemove", mv); addEventListener("mouseup", up); });
+    rz.addEventListener("click", e => e.stopPropagation());
+    rz.addEventListener("dblclick", e => { e.stopPropagation(); autofit(k, col); });   // แบบ Excel: ดับเบิลคลิกขอบ = พอดีข้อความ
+  });
+}
+function autofit(k, col){
+  const idx = COLS.findIndex(c=>c.k===k); const meas = document.createElement("span");
+  meas.style.cssText="position:absolute;visibility:hidden;white-space:nowrap;font:inherit"; document.body.appendChild(meas);
+  let w = 40;
+  for (const cell of document.querySelectorAll(`#tbl tr > :nth-child(${idx+1})`)){ meas.innerHTML = cell.innerHTML; w = Math.max(w, meas.offsetWidth + 24); }
+  meas.remove(); w = Math.min(w, 700); col.style.width = w+"px"; CFG.columns = {...CFG.columns, [k]: w}; saveCfg({});
+}
+function sortView(){ const c = COLS.find(x=>x.k===sortCol) || COLS[3];
+  VIEW.sort((a,b) => { const x=c.s(a), y=c.s(b); return (x>y?1:x<y?-1:0)*sortDir || a.dist-b.dist; }); }
+function renderTable(){ buildHead(); renderBody(); }
+function renderMobileList(){
+  $("#mlist").innerHTML = VIEW.map(p => `<div class="mrow ${picked&&picked.id===p.id?"sel":""}" data-id="${p.id}">
+    <div class="ic">${p.fav?"⭐":ICON[p.cats[0]]||"🍴"}</div>
+    <div class="tx"><div class="t1">${esc(p.name)}</div>
+      <div class="t2">${p.dist.toFixed(2)} กม.${p.priceTxt?" • "+esc(p.priceTxt):""}${p.openNow===true?" • 🟢 เปิด":p.openNow===false?" • 🔴 ปิด":""}${p.phone?" • 📞 "+esc(p.phone):""}</div></div>
+    <div class="bt"><button class="mini go" data-go="${p.id}">🧭 ไป</button>${p.phone?`<a class="mini" style="text-decoration:none;text-align:center" href="tel:${esc(p.phone.replace(/[^\d+]/g,""))}">📞 โทร</a>`:""}</div></div>`).join("")
+    || `<div style="padding:1.5em;text-align:center;color:#888">ไม่มีร้านตามตัวกรองนี้</div>`;
+}
+$("#mlist").addEventListener("click", e => {
+  if (e.target.tagName === "A") return;
+  const row = e.target.closest(".mrow"); if (!row) return; const p = VIEW.find(x=>x.id===row.dataset.id); if (!p) return;
+  const b = e.target.closest("button"); if (b && b.dataset.go){ ev(`นำทางไป: ${p.name}`); window.open(navUrl(p), "_blank"); return; }
+  showPick(p, false);
+});
+function renderBody(){
+  renderMobileList();
+  $("#tb").innerHTML = VIEW.map(p => `<tr data-id="${p.id}" class="${picked&&picked.id===p.id?"sel":""}">${COLS.map(c=>`<td class="${c.num?"num":""}" title="${c.k==="act"?"":String(c.v(p)).replace(/<[^>]+>/g,"").replace(/"/g,"&quot;")}">${c.v(p)}</td>`).join("")}</tr>`).join("")
+    || `<tr><td colspan="${COLS.length}" style="text-align:center;padding:1em;color:#888">ไม่มีร้านตามตัวกรองนี้</td></tr>`;
+}
+$("#tb").addEventListener("click", e => {
+  const b = e.target.closest("button"); const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  const p = VIEW.find(x=>x.id===tr.dataset.id); if (!p) return;
+  if (b && b.dataset.go){ ev(`นำทางไป: ${p.name}`); window.open(navUrl(p), "_blank"); return; }
+  if (b && b.dataset.ed){ openEdit(p); return; }
+  if (e.target.tagName === "A") return;
+  showPick(p, false);
+});
+function selectRow(id){ document.querySelectorAll("#tb tr.sel").forEach(r=>r.classList.remove("sel"));
+  const tr = document.querySelector(`#tb tr[data-id="${CSS.escape(id)}"]`); if (tr){ tr.classList.add("sel"); const w=$("#tblWrap"), hh=$("#tbl thead").offsetHeight;
+    if (tr.offsetTop - hh < w.scrollTop) w.scrollTop = tr.offsetTop - hh;
+    else if (tr.offsetTop + tr.offsetHeight > w.scrollTop + w.clientHeight) w.scrollTop = tr.offsetTop + tr.offsetHeight - w.clientHeight; } }
+
+/* ---------------- หน้าต่างย่อย ---------------- */
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => b.closest(".dlg").classList.remove("show"));
+document.addEventListener("keydown", e => { if (e.key==="Escape"){ document.querySelectorAll(".dlg.show").forEach(d=>d.classList.remove("show")); stopPick(); }
+  if (e.key===" " && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && !document.querySelector(".dlg.show")){ e.preventDefault(); $("#btnRandom").click(); } });
+function catOptions(sel, chosen){ sel.innerHTML = Object.keys(LABELS).map(k=>`<option value="${k}" ${chosen.includes(k)?"selected":""}>${ICON[k]} ${esc(LABELS[k])}</option>`).join(""); }
+let editing = null;
+function openEdit(p){
+  editing = p; const e = EDITS[p.id] || {};
+  $("#edTitle").textContent = "✏ แก้ข้อมูล: " + p.name;
+  const lvl = (e.price||"").split(" ")[0];
+  $("#edPrice").value = [...$("#edPrice").options].find(o=>o.value.split(" ")[0]===lvl && lvl)?.value || "";
+  $("#edRange").value = e.range || ""; $("#edPhone").value = p.phone || ""; $("#edHours").value = p.hours || "";
+  $("#edNote").value = e.note || ""; $("#edFav").checked = !!e.fav; $("#edHide").checked = !!e.hide;
+  catOptions($("#edCats"), p.cats); $("#edDel").style.display = p.id.startsWith("my:") ? "" : "none";
+  $("#dlgEdit").classList.add("show");
+}
+$("#edSave").onclick = async () => {
+  const p = editing; const body = {id:p.id, name:p.name, price:$("#edPrice").value.split(" ")[0], range:$("#edRange").value.trim(),
+    phone:$("#edPhone").value.trim(), hours:$("#edHours").value.trim(), note:$("#edNote").value.trim(),
+    fav:$("#edFav").checked, hide:$("#edHide").checked, cats:[...$("#edCats").selectedOptions].map(o=>o.value)};
+  try{ await api("/api/edit", body); EDITS[p.id] = {...(EDITS[p.id]||{}), ...body};
+    PLACES = PLACES.map(x => x.id===p.id ? decorate(x) : x);
+    $("#dlgEdit").classList.remove("show"); toast("บันทึกแล้ว"); refresh();
+    const np = PLACES.find(x=>x.id===p.id); if (np && !np.hide) showPick(np,false); }
+  catch(e){ toast("บันทึกไม่ได้: "+e.message, 4000); }
+};
+$("#edDel").onclick = async () => { const p = editing; if (!confirm(`ลบร้าน "${p.name}" ?`)) return;
+  await api("/api/delete_added", {id:p.id}); $("#dlgEdit").classList.remove("show"); search(); };
+let addLL = null;
+$("#btnAdd").onclick = () => { if (MOBILE.matches) setTab("map"); picking = "add"; document.body.classList.add("picking"); $("#mapInfo").textContent = "👉 คลิกตำแหน่งร้านบนแผนที่"; toast("คลิกบนแผนที่ตรงที่ร้านตั้งอยู่"); };
+function openAdd(lat, lon){ addLL = {lat, lon}; $("#addPos").textContent = `ตำแหน่ง: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  ["#adName","#adPhone"].forEach(s=>$(s).value=""); $("#adPrice").value=""; catOptions($("#adCats"), []); $("#dlgAdd").classList.add("show"); $("#adName").focus(); }
+$("#adSave").onclick = async () => {
+  const name = $("#adName").value.trim(); if (!name) return toast("ใส่ชื่อร้านก่อน");
+  try{ const r = await api("/api/add", {name, phone:$("#adPhone").value.trim(), ...addLL, cats:[...$("#adCats").selectedOptions].map(o=>o.value)});
+    if ($("#adPrice").value) await api("/api/edit", {id:r.place.id, name, price:$("#adPrice").value});
+    $("#dlgAdd").classList.remove("show"); toast("เพิ่มร้านแล้ว"); search(); }
+  catch(e){ toast(e.message, 4000); }
+};
+$("#btnSet").onclick = () => { $("#stKey").value = CFG.google_api_key || ""; $("#stVer").textContent = `FoodPicker v${CFG.version} • ข้อมูลเก็บที่โฟลเดอร์ data • log ที่ logs/app.log`; $("#dlgSet").classList.add("show"); };
+$("#stSave").onclick = async () => { await api("/api/config", {google_api_key:$("#stKey").value}); await loadCfg(); $("#dlgSet").classList.remove("show"); toast("บันทึกการตั้งค่าแล้ว"); };
+$("#stClear").onclick = async () => { await api("/api/config", {google_api_key:""}); await loadCfg(); $("#stKey").value=""; toast("ลบ key แล้ว"); if (CFG.source==="google"){ CFG.source="osm"; $("#selSource").value="osm"; saveCfg({}); search(); } };
+async function showLog(){ const j = await api("/api/log?n=300"); $("#logBox").textContent = j.lines.join("\n") || "(ยังไม่มี)"; $("#logBox").scrollTop = 1e9; }
+$("#btnLog").onclick = () => { $("#dlgLog").classList.add("show"); showLog(); };
+$("#logRefresh").onclick = showLog;
+
+/* ---------------- เริ่มต้น ---------------- */
+async function loadCfg(){ const c = await api("/api/config"); CFG = {...CFG, ...c, layout:{left:360, tableH:280, ...(c.layout||{})}, columns:c.columns||{}}; LABELS = c.category_labels; }
+(async () => {
+  await loadCfg();
+  selCats = new Set(CFG.categories || []); openOnly = !!CFG.open_only;
+  applyFont();
+  $("#left").style.width = CFG.layout.left + "px"; $("#tablePane").style.height = CFG.layout.tableH + "px";
+  $("#selRadius").value = String(CFG.radius_km); if (!$("#selRadius").value){ $("#selRadius").value="3"; CFG.radius_km=3; }
+  $("#selSource").value = CFG.source;
+  $("#locLabel").textContent = CFG.location.label || "-";
+  $("#st2").textContent = `v${CFG.version} • กด Space = สุ่ม • Esc = ยกเลิก`;
+  initMap(); drawMe();
+  if (CFG.first_run && window.isSecureContext && navigator.geolocation){ toast("ขอตำแหน่งเพื่อหาร้านใกล้ตัว…"); $("#btnGps").click(); }
+  else search();
+})();
+</script>
+</body>
+</html>
