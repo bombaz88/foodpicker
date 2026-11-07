@@ -283,7 +283,7 @@ body.picking #map{cursor:crosshair}
    ทุกอย่างเก็บในเครื่องที่เปิด (localStorage) — ค้นร้านจาก OpenStreetMap ตรงจากเบราว์เซอร์
    ฟังก์ชัน api() ข้างล่างเลียนแบบ API ของ server.py เพื่อให้หน้าจอใช้โค้ดชุดเดียวกัน */
 const STANDALONE = true;
-const VERSION = "1.2.1";
+const VERSION = "1.2.2";
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem("fp_"+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem("fp_"+k, JSON.stringify(v)); }catch(e){} },
@@ -304,10 +304,18 @@ const CATEGORY_RULES = [
   ["chinese","จีน/ติ่มซำ",["chinese","dim_sum","dimsum","ติ่มซำ","โจ๊ก","จีน"]],
   ["fastfood","ฟาสต์ฟู้ด/ไก่ทอด/พิซซ่า",["fast_food","burger","pizza","fried_chicken","sandwich","kfc","mcdonald","ไก่ทอด","เบอร์เกอร์","พิซซ่า","hamburger"]],
   ["western","สเต๊ก/ฝรั่ง/นานาชาติ",["steak","western","italian","american","international","french","german","indian","mexican","สเต๊ก"]],
-  ["cafe","คาเฟ่/กาแฟ/ของหวาน",["cafe","coffee","dessert","ice_cream","bakery","cake","tea","bubble_tea","กาแฟ","คาเฟ่","ขนม","เบเกอรี่","ไอศกรีม","บิงซู","ชานม"]],
+  ["cafe","คาเฟ่/กาแฟ/ของหวาน",["cafe","café","coffee","คอฟฟี่","amazon","อเมซอน","starbucks","dessert","ice_cream","bakery","cake","tea","bubble_tea","กาแฟ","คาเฟ่","ขนม","เบเกอรี่","ไอศกรีม","บิงซู","ชานม"]],
   ["buffet","บุฟเฟ่ต์",["buffet","บุฟเฟ่ต์"]],
 ];
 const CATEGORY_LABELS = Object.fromEntries(CATEGORY_RULES.map(r => [r[0], r[1]])); CATEGORY_LABELS.other = "อื่นๆ/ร้านอาหารทั่วไป";
+const NON_FOOD = ["มินิมาร์","minimart","mini mart","สะดวกซื้อ","เซเว่น","7-eleven","นวด","คาร์แคร์","car care","ซ่อม","เสริมสวย",
+  "ตัดผม","การค้า","ร้านค้า","ของชำ","โชห่วย","วัสดุ","อะไหล่","ซักรีด","ซักผ้า","ปั๊ม","ยาง","เภสัช","ขายยา","บรรจุภัณฑ์","แช่แข็ง"];
+const cleanName = n => n.replace(/^\s*\d+\s*(พ\.?|อ\.?)?\s+/, "").trim() || n;   // '12 พ ร้านเอ' → 'ร้านเอ'
+function osmCats(name, cuisine, kind, brand){   // จัดหมวดจากชื่อก่อน ไม่เชื่อป้าย cafe อย่างเดียว
+  let c = classify([name, cuisine, brand||""].join(" "));
+  if (c.length === 1 && c[0] === "other"){ if (kind === "fast_food") c = ["fastfood"]; else if (["ice_cream","bakery","pastry","coffee"].includes(kind)) c = ["cafe"]; }
+  return c;
+}
 function classify(t){ t = (t||"").toLowerCase(); const c = CATEGORY_RULES.filter(r => r[2].some(w => t.includes(w))).map(r => r[0]); return c.length ? c : ["other"]; }
 
 function lsLog(msg){ const L = LS.get("log", []); const d = new Date(), p = n => String(n).padStart(2,"0");
@@ -333,14 +341,16 @@ async function searchOSM(lat, lon, r){
   ctl.abort();
   const out = [];
   for (const el of js.elements || []){
-    const tg = el.tags || {}; const name = tg["name:th"] || tg.name || tg["name:en"]; if (!name || !/[A-Za-z\u0E00-\u0E7F]/.test(name)) continue;  // ตัดชื่อที่เป็นแค่ตัวเลข
+    const tg = el.tags || {}; let name = tg["name:th"] || tg.name || tg["name:en"]; if (!name || !/[A-Za-z\u0E00-\u0E7F]/.test(name)) continue;  // ตัดชื่อที่เป็นแค่ตัวเลข
+    name = cleanName(name);
+    if (NON_FOOD.some(w => name.toLowerCase().includes(w)) && classify(name+" "+(tg.cuisine||"")).join() === "other") continue;  // ไม่ใช่ร้านอาหาร
     const la = el.lat ?? el.center?.lat, lo = el.lon ?? el.center?.lon; if (la == null) continue;
     const kind = tg.amenity || tg.shop || "", cuisine = tg.cuisine || "";
     out.push({ id:`osm:${el.type}/${el.id}`, name, lat:la, lon:lo,
       phone: tg.phone || tg["contact:phone"] || tg["contact:mobile"] || "", price:"", rating:null, rating_count:null,
       hours: tg.opening_hours || "", open_now:null,
       address: [tg["addr:housenumber"], tg["addr:street"], tg["addr:subdistrict"], tg["addr:district"]].filter(Boolean).join(" "),
-      cuisine: cuisine.replace(/;/g, ", "), kind, cats: classify([kind, cuisine, name, tg["name:en"]||"", tg.brand||""].join(" ")),
+      cuisine: cuisine.replace(/;/g, ", "), kind, cats: osmCats(name+" "+(tg["name:en"]||""), cuisine, kind, tg.brand),
       website: tg.website || tg["contact:facebook"] || "", source:"OSM" });
   }
   return out;
@@ -390,7 +400,7 @@ async function api(path, body){
       const lat = +q.get("lat"), lon = +q.get("lon"), r = Math.round(+q.get("r")*1000), src = q.get("src"), force = q.get("force") === "1";
       const key = getConfig().google_api_key;
       if (src === "google" && !key) throw new Error("ยังไม่ได้ใส่ Google API key (ปุ่ม ⚙ ตั้งค่า) — หรือเปลี่ยนแหล่งข้อมูลเป็น OpenStreetMap");
-      const ck = `${src}|${lat.toFixed(3)}|${lon.toFixed(3)}|${r}`; const cache = LS.get("cache", null);
+      const ck = `v122|${src}|${lat.toFixed(3)}|${lon.toFixed(3)}|${r}`; const cache = LS.get("cache", null);
       let places, cached = false;
       if (!force && cache && cache.k === ck && Date.now() - cache.t < 24*3600e3){ places = cache.places; cached = true; lsLog(`ค้นร้าน (แคช) ได้ ${places.length} ร้าน`); }
       else { places = src === "google" ? await searchGoogle(lat, lon, r, key) : await searchOSM(lat, lon, r);
