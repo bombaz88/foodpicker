@@ -283,7 +283,7 @@ body.picking #map{cursor:crosshair}
    ทุกอย่างเก็บในเครื่องที่เปิด (localStorage) — ค้นร้านจาก OpenStreetMap ตรงจากเบราว์เซอร์
    ฟังก์ชัน api() ข้างล่างเลียนแบบ API ของ server.py เพื่อให้หน้าจอใช้โค้ดชุดเดียวกัน */
 const STANDALONE = true;
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem("fp_"+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem("fp_"+k, JSON.stringify(v)); }catch(e){} },
@@ -333,7 +333,7 @@ async function searchOSM(lat, lon, r){
   ctl.abort();
   const out = [];
   for (const el of js.elements || []){
-    const tg = el.tags || {}; const name = tg["name:th"] || tg.name || tg["name:en"]; if (!name) continue;
+    const tg = el.tags || {}; const name = tg["name:th"] || tg.name || tg["name:en"]; if (!name || !/[A-Za-z\u0E00-\u0E7F]/.test(name)) continue;  // ตัดชื่อที่เป็นแค่ตัวเลข
     const la = el.lat ?? el.center?.lat, lo = el.lon ?? el.center?.lon; if (la == null) continue;
     const kind = tg.amenity || tg.shop || "", cuisine = tg.cuisine || "";
     out.push({ id:`osm:${el.type}/${el.id}`, name, lat:la, lon:lo,
@@ -794,8 +794,8 @@ async function loadCfg(){ const c = await api("/api/config"); CFG = {...CFG, ...
   $("#locLabel").textContent = CFG.location.label || "-";
   $("#st2").textContent = `v${CFG.version} • กด Space = สุ่ม • Esc = ยกเลิก`;
   initMap(); drawMe();
+  search();   // แสดงร้านทันที ไม่ต้องรอ GPS
   if (CFG.first_run && window.isSecureContext && navigator.geolocation){ toast("ขอตำแหน่งเพื่อหาร้านใกล้ตัว…"); $("#btnGps").click(); }
-  else search();
 })();
 </script>
 </body>
