@@ -139,6 +139,14 @@ body.picking #map{cursor:crosshair}
 .ptg.on{background:var(--accent2);color:#fff;border-color:#1b5e28}
 .psr{border:1px solid var(--line);border-radius:8px;padding:.2em .6em;background:#fff;color:#1864ab;text-decoration:none;font-weight:700;font-size:.9em;white-space:nowrap}
 .pico{font-size:.85em;letter-spacing:.05em}
+.ptg.no{background:#f1e4e4;color:#8a2a2a;border-color:#c99}
+.pbtns{display:flex;gap:.3em}
+.qp{border:2px solid var(--line);background:#fff;border-radius:8px;padding:0 .35em;font-size:.85em;font-weight:700;white-space:nowrap}
+.qp.y{background:var(--accent2);color:#fff;border-color:#1b5e28}
+.qp.n{background:#f1e4e4;color:#8a2a2a;border-color:#c99;text-decoration:line-through}
+.qs{font-size:.85em;text-decoration:none;padding:0 .2em}
+#platBanner{background:#fff3bf;border-bottom:3px solid #e0b100;padding:.35em .7em;font-size:.92em;display:flex;flex-wrap:wrap;gap:.35em .8em;align-items:center}
+#platBanner a{font-weight:700;color:#1864ab}
 #qrBox{display:flex;flex-direction:column;align-items:center;gap:.5em}
 #qrBox img{width:240px;height:240px;border:6px solid #fff;outline:2px solid var(--line)}
 #qrBox .u{font-size:1.25em;font-weight:800;color:#1864ab;word-break:break-all;text-align:center}
@@ -215,6 +223,7 @@ body.picking #map{cursor:crosshair}
     <input type="search" id="q" placeholder="🔎 ค้นชื่อร้าน">
   </div>
 
+  <div id="platBanner" hidden></div>
   <div id="main">
     <div id="top">
       <div class="pane" id="left">
@@ -294,7 +303,7 @@ body.picking #map{cursor:crosshair}
    ทุกอย่างเก็บในเครื่องที่เปิด (localStorage) — ค้นร้านจาก OpenStreetMap ตรงจากเบราว์เซอร์
    ฟังก์ชัน api() ข้างล่างเลียนแบบ API ของ server.py เพื่อให้หน้าจอใช้โค้ดชุดเดียวกัน */
 const STANDALONE = true;
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem("fp_"+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem("fp_"+k, JSON.stringify(v)); }catch(e){} },
@@ -455,6 +464,39 @@ const PLATS = [
 ];
 const platSearch = (pl, p) => "https://www.google.com/search?q=" + encodeURIComponent(pl.q(p) + " " + (CFG.location?.label && !/ตำแหน่ง|จุดที่/.test(CFG.location.label) ? CFG.location.label.split(" ")[0] : ""));
 const platIcons = p => (p.plat||[]).map(k => (PLATS.find(x=>x.k===k)||{}).ic || "").join("");
+const pst = (p, k) => p.plat.includes(k) ? "y" : p.platNo.includes(k) ? "n" : "u";
+const yesSel = p => [...selPlats].filter(k => p.plat.includes(k)).length;
+const APP_LINKS = {grab:"https://food.grab.com/th/th/", lineman:"https://lineman.line.me/", wongnai:"https://www.wongnai.com/", michelin:"https://guide.michelin.com/th/th/restaurants"};
+/* ปุ่มเช็กเร็วต่อท้ายแต่ละร้าน (แสดงเมื่อเลือกแอปในแถบกรอง): กดวน ? → ✔ → ✖ → ? */
+function quickPlat(p){
+  if (!selPlats.size) return `<span class="pico">${platIcons(p)}</span>`;
+  return [...selPlats].map(k => { const pl = PLATS.find(x=>x.k===k), st = pst(p,k);
+    return `<span style="white-space:nowrap"><button class="qp ${st}" data-qp="${k}" title="กดเพื่อเปลี่ยน: ? ยังไม่เช็ก → ✔ มี → ✖ ไม่มี">${pl.ic}${st==="y"?"✔":st==="n"?"✖":"?"}</button><a class="qs" target="_blank" rel="noopener" href="${platSearch(pl,p)}" title="ค้นร้านนี้ใน ${pl.t}">🔎</a></span>`; }).join(" ");
+}
+async function setPlat(p, k, st){
+  const y = new Set(p.plat), n = new Set(p.platNo); y.delete(k); n.delete(k);
+  if (st === "y") y.add(k); else if (st === "n") n.add(k);
+  const body = {plat:[...y], platNo:[...n]};
+  await api("/api/edit", {id:p.id, name:p.name, ...body}); EDITS[p.id] = {...(EDITS[p.id]||{}), ...body};
+  PLACES = PLACES.map(x => x.id===p.id ? decorate(x) : x);
+  ev(`${p.name}: ${PLATS.find(x=>x.k===k).t} = ${st==="y"?"มี":st==="n"?"ไม่มี":"ยังไม่เช็ก"}`);
+  return PLACES.find(x=>x.id===p.id);
+}
+async function cyclePlat(id, k){
+  const p = PLACES.find(x=>x.id===id); if (!p) return;
+  const nx = {u:"y", y:"n", n:"u"}[pst(p,k)];
+  try{ const np = await setPlat(p, k, nx); refresh(); if (picked && picked.id===id) showPick(np, false); }
+  catch(e){ toast("บันทึกไม่ได้: " + e.message, 4000); }
+}
+function renderPlatBanner(){
+  const b = $("#platBanner"); if (!selPlats.size){ b.hidden = true; return; }
+  const names = [...selPlats].map(k=>PLATS.find(x=>x.k===k).t).join(" / ");
+  const yes = VIEW.filter(p=>yesSel(p)).length, unk = VIEW.length - yes;
+  b.hidden = false;
+  b.innerHTML = `<span>📱 <b>${esc(names)}</b>: ✔ มีแน่ ${yes} ร้าน • ยังไม่เช็ก ${unk} ร้าน
+    ${yes ? "— กดสุ่มจะสุ่มจากร้านที่ ✔ ก่อน" : "— กด 🔎 หลังชื่อร้านเพื่อเช็ก แล้วกดปุ่มไอคอนให้เป็น ✔ หรือ ✖"}</span>
+    <span>เปิดแอปดูร้านใกล้ตัว: ${[...selPlats].map(k=>`<a target="_blank" rel="noopener" href="${APP_LINKS[k]}">${PLATS.find(x=>x.k===k).ic} ${PLATS.find(x=>x.k===k).t}</a>`).join(" • ")}</span>`;
+}
 const ICON = {noodle:"🍜",thai:"🍛",isan:"🥗",chicken_rice:"🍗",bbq:"🥓",seafood:"🦐",japanese:"🍣",korean:"🇰🇷",chinese:"🥟",
   fastfood:"🍔",western:"🥩",cafe:"☕",buffet:"🍽️",other:"🍴"};
 const PRICES = ["฿","฿฿","฿฿฿","฿฿฿฿","ไม่ระบุ"];
@@ -582,7 +624,7 @@ function decorate(p){
   q.phone = e.phone || p.phone || "";
   q.hours = e.hours || p.hours || "";
   q.note = e.note || "";
-  q.fav = !!e.fav; q.hide = !!e.hide; q.plat = Array.isArray(e.plat) ? e.plat : [];
+  q.fav = !!e.fav; q.hide = !!e.hide; q.plat = Array.isArray(e.plat) ? e.plat : []; q.platNo = Array.isArray(e.platNo) ? e.platNo : [];
   const lvl = (e.price || "").split(" ")[0] || (p.price||"").split(" ")[0] || "";
   q.level = PRICES.includes(lvl) ? lvl : "";
   q.priceTxt = [q.level || "", e.range || ((p.price||"").split(" ").slice(1).join(" "))].filter(Boolean).join(" ") || "";
@@ -618,9 +660,8 @@ function buildChips(){
   $("#priceChips").innerHTML = PRICES.map(p=>`<button class="chip ${selPrices.has(p)?"on":""}" data-p="${p}">${p}</button>`).join(" ");
   $("#priceChips").querySelectorAll(".chip").forEach(b => b.onclick = () => { const p=b.dataset.p; selPrices.has(p)?selPrices.delete(p):selPrices.add(p); refresh(); });
   const pc = {}; for (const p of PLACES) if (!p.hide) for (const k of p.plat) pc[k]=(pc[k]||0)+1;
-  $("#platChips").innerHTML = PLATS.map(pl=>`<button class="chip ${selPlats.has(pl.k)?"on":""}" data-k="${pl.k}" title="แสดงเฉพาะร้านที่ติ๊กว่ามีใน ${pl.t}">${pl.ic} ${pl.t}<span class="n">${pc[pl.k]||0}</span></button>`).join(" ");
+  $("#platChips").innerHTML = PLATS.map(pl=>`<button class="chip ${selPlats.has(pl.k)?"on":""}" data-k="${pl.k}" title="ซ่อนร้านที่ติ๊กว่าไม่มีใน ${pl.t} • ร้านที่มีขึ้นก่อน">${pl.ic} ${pl.t}<span class="n">${pc[pl.k]||0}</span></button>`).join(" ");
   $("#platChips").querySelectorAll(".chip").forEach(b => b.onclick = () => { const k=b.dataset.k; selPlats.has(k)?selPlats.delete(k):selPlats.add(k);
-    if (selPlats.size && !PLACES.some(p=>!p.hide && p.plat.some(x=>selPlats.has(x)))) toast("ยังไม่มีร้านที่ติ๊กไว้ — เปิดการ์ดร้าน แล้วกด 🔎 ค้น เพื่อเช็ก แล้วติ๊กว่ามีในแอปนั้น", 5000);
     saveCfg({}); refresh(); });
   $("#chipOpen").classList.toggle("on", openOnly);
 }
@@ -631,16 +672,18 @@ function filtered(){
   return PLACES.filter(p => !p.hide
     && (!selCats.size || p.cats.some(c => selCats.has(c)))
     && (!selPrices.size || selPrices.has(p.level || "ไม่ระบุ"))
-    && (!selPlats.size || p.plat.some(k => selPlats.has(k)))
+    && (!selPlats.size || [...selPlats].some(k => pst(p,k) !== "n"))
     && (!openOnly || p.openNow === true)
     && (!q || p.name.toLowerCase().includes(q) || (p.cuisine||"").toLowerCase().includes(q)));
 }
-function refresh(){ buildChips(); VIEW = filtered(); sortView(); renderTable(); drawMarkers();
-  $("#poolInfo").textContent = `สุ่มจาก ${VIEW.filter(p=>!rejected.has(p.id)).length} ร้าน`; }
+function refresh(){ buildChips(); VIEW = filtered(); sortView(); renderTable(); drawMarkers(); renderPlatBanner();
+  { let pool = VIEW.filter(p=>!rejected.has(p.id)); const y = selPlats.size ? pool.filter(p=>yesSel(p)) : [];
+    $("#poolInfo").textContent = y.length ? `สุ่มจาก ${y.length} ร้านที่ ✔ มีในแอป` : `สุ่มจาก ${pool.length} ร้าน`; } }
 
 /* ---------------- สุ่ม ---------------- */
 $("#btnRandom").onclick = () => {
   let pool = VIEW.filter(p => !rejected.has(p.id));
+  if (selPlats.size && pool.some(p => yesSel(p))) pool = pool.filter(p => yesSel(p));
   if (!pool.length && VIEW.length){ rejected.clear(); pool = VIEW.slice(); toast("วนครบทุกร้านแล้ว เริ่มสุ่มใหม่ทั้งหมด"); }
   if (!pool.length) return toast("ไม่มีร้านให้สุ่ม ลองเพิ่มรัศมีหรือเลือกประเภทอื่น", 3500);
   const weights = pool.map(p => p.fav ? 3 : 1), tot = weights.reduce((a,b)=>a+b,0);
@@ -674,9 +717,9 @@ function showPick(p, fromRandom){
       ${p.note ? `<b>โน้ต</b><span>${esc(p.note)}</span>` : ""}
       <b>พิกัด</b><span>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</span>
     </div>
-    <div class="plat"><div class="ph2">มีในแอปไหน? (กดปุ่มซ้ายเพื่อติ๊ก ✔ • 🔎 = ค้นร้านนี้)</div>
-      ${PLATS.map(pl=>`<div class="pr"><button class="ptg ${p.plat.includes(pl.k)?"on":""}" data-pk="${pl.k}">${p.plat.includes(pl.k)?"✔":"☐"} ${pl.ic} ${pl.t}</button>
-        <a class="psr" target="_blank" rel="noopener" href="${platSearch(pl,p)}">🔎 ค้น</a></div>`).join("")}
+    <div class="plat"><div class="ph2">มีในแอปไหน? กด 🔎 เช็ก แล้วกด ✔ มี / ✖ ไม่มี</div>
+      ${PLATS.map(pl=>{ const st = pst(p,pl.k); return `<div class="pr"><span style="font-weight:700">${pl.ic} ${pl.t} ${st==="y"?"✔":st==="n"?"✖":'<span class="note">ยังไม่เช็ก</span>'}</span>
+        <span class="pbtns"><a class="psr" target="_blank" rel="noopener" href="${platSearch(pl,p)}">🔎 เช็ก</a><button class="ptg ${st==="y"?"on":""}" data-pk="${pl.k}" data-st="y">✔ มี</button><button class="ptg ${st==="n"?"no":""}" data-pk="${pl.k}" data-st="n">✖</button></span></div>`; }).join("")}
     </div>
     <div class="acts">
       <button class="btn go wide" id="cGo">🧭 นำทางไปร้านนี้</button>
@@ -690,11 +733,8 @@ function showPick(p, fromRandom){
   $("#cMap").onclick = () => window.open(gmUrl2(p), "_blank");
   $("#cEdit").onclick = () => openEdit(p);
   $("#card").querySelectorAll(".ptg").forEach(b => b.onclick = async () => {
-    const k = b.dataset.pk, cur = new Set(p.plat); cur.has(k) ? cur.delete(k) : cur.add(k); const plat = [...cur];
-    try{ await api("/api/edit", {id:p.id, name:p.name, plat}); EDITS[p.id] = {...(EDITS[p.id]||{}), plat};
-      PLACES = PLACES.map(x => x.id===p.id ? decorate(x) : x); const np = PLACES.find(x=>x.id===p.id);
-      ev(`${p.name}: ${cur.has(k)?"มี":"ไม่มี"}ใน ${PLATS.find(x=>x.k===k).t}`);
-      refresh(); showPick(np, false); }
+    const k = b.dataset.pk, st = pst(p,k) === b.dataset.st ? "u" : b.dataset.st;   // กดซ้ำ = กลับเป็นยังไม่เช็ก
+    try{ const np = await setPlat(p, k, st); refresh(); showPick(np, false); }
     catch(e){ toast("บันทึกไม่ได้: " + e.message, 4000); } });
   if ($("#cPin")) $("#cPin").onclick = () => setTab("map");
   if (p.phone){ $("#cCall").onclick = () => { ev(`โทรหา: ${p.name} ${p.phone}`); location.href = "tel:" + p.phone.replace(/[^\d+]/g,""); };
@@ -722,7 +762,7 @@ const COLS = [
   {k:"rating", t:"คะแนน", w:95, num:1, v:p=>p.rating?`${p.rating} (${p.rating_count||0})`:"", s:p=>-(p.rating||0)},
   {k:"open", t:"เปิด/ปิด", w:150, v:p=>(p.openNow===true?"🟢 ":p.openNow===false?"🔴 ":"")+esc(p.hours), s:p=>p.openNow===true?0:p.openNow===false?2:1},
   {k:"addr", t:"ที่อยู่ / อาหาร", w:240, v:p=>esc([p.address,p.cuisine,p.note].filter(Boolean).join(" • ")), s:p=>p.address||"~"},
-  {k:"plat", t:"มีในแอป", w:110, v:p=>`<span class="pico">${platIcons(p)}</span>`, s:p=>-(p.plat||[]).length},
+  {k:"plat", t:"มีในแอป", w:150, v:p=>quickPlat(p), s:p=>-(p.plat||[]).length},
   {k:"src", t:"ที่มา", w:90, v:p=>esc(p.source), s:p=>p.source},
   {k:"act", t:"จัดการ", w:220, v:p=>`<button class="mini go" data-go="${p.id}">🧭 นำทาง</button> <button class="mini" data-ed="${p.id}">✏ แก้</button> <button class="mini" data-pk="${p.id}">👁 ดู</button>`, s:p=>0},
 ];
@@ -751,20 +791,21 @@ function autofit(k, col){
   meas.remove(); w = Math.min(w, 700); col.style.width = w+"px"; CFG.columns = {...CFG.columns, [k]: w}; saveCfg({});
 }
 function sortView(){ const c = COLS.find(x=>x.k===sortCol) || COLS[3];
-  VIEW.sort((a,b) => { const x=c.s(a), y=c.s(b); return (x>y?1:x<y?-1:0)*sortDir || a.dist-b.dist; }); }
+  VIEW.sort((a,b) => (selPlats.size ? yesSel(b)-yesSel(a) : 0) || (()=>{ const x=c.s(a), y=c.s(b); return (x>y?1:x<y?-1:0)*sortDir; })() || a.dist-b.dist); }
 function renderTable(){ buildHead(); renderBody(); }
 function renderMobileList(){
   $("#mlist").innerHTML = VIEW.map(p => `<div class="mrow ${picked&&picked.id===p.id?"sel":""}" data-id="${p.id}">
     <div class="ic">${p.fav?"⭐":ICON[p.cats[0]]||"🍴"}</div>
-    <div class="tx"><div class="t1">${esc(p.name)} <span class="pico">${platIcons(p)}</span></div>
-      <div class="t2">${p.dist.toFixed(2)} กม.${p.priceTxt?" • "+esc(p.priceTxt):""}${p.openNow===true?" • 🟢 เปิด":p.openNow===false?" • 🔴 ปิด":""}${p.phone?" • 📞 "+esc(p.phone):""}</div></div>
+    <div class="tx"><div class="t1">${esc(p.name)} ${selPlats.size?"":`<span class="pico">${platIcons(p)}</span>`}</div>
+      <div class="t2">${p.dist.toFixed(2)} กม.${p.priceTxt?" • "+esc(p.priceTxt):""}${p.openNow===true?" • 🟢 เปิด":p.openNow===false?" • 🔴 ปิด":""}${p.phone?" • 📞 "+esc(p.phone):""}</div>${selPlats.size?`<div style="margin-top:.25em">${quickPlat(p)}</div>`:""}</div>
     <div class="bt"><button class="mini go" data-go="${p.id}">🧭 ไป</button>${p.phone?`<a class="mini" style="text-decoration:none;text-align:center" href="tel:${esc(p.phone.replace(/[^\d+]/g,""))}">📞 โทร</a>`:""}</div></div>`).join("")
     || `<div style="padding:1.5em;text-align:center;color:#888">ไม่มีร้านตามตัวกรองนี้</div>`;
 }
 $("#mlist").addEventListener("click", e => {
   if (e.target.tagName === "A") return;
   const row = e.target.closest(".mrow"); if (!row) return; const p = VIEW.find(x=>x.id===row.dataset.id); if (!p) return;
-  const b = e.target.closest("button"); if (b && b.dataset.go){ ev(`นำทางไป: ${p.name}`); window.open(navUrl(p), "_blank"); return; }
+  const b = e.target.closest("button"); if (b && b.dataset.qp){ cyclePlat(p.id, b.dataset.qp); return; }
+  if (b && b.dataset.go){ ev(`นำทางไป: ${p.name}`); window.open(navUrl(p), "_blank"); return; }
   showPick(p, false);
 });
 function renderBody(){
@@ -777,6 +818,7 @@ $("#tb").addEventListener("click", e => {
   const p = VIEW.find(x=>x.id===tr.dataset.id); if (!p) return;
   if (b && b.dataset.go){ ev(`นำทางไป: ${p.name}`); window.open(navUrl(p), "_blank"); return; }
   if (b && b.dataset.ed){ openEdit(p); return; }
+  if (b && b.dataset.qp){ cyclePlat(p.id, b.dataset.qp); return; }
   if (e.target.tagName === "A") return;
   showPick(p, false);
 });
@@ -805,7 +847,7 @@ function openEdit(p){
 $("#edSave").onclick = async () => {
   const p = editing; const body = {id:p.id, name:p.name, price:$("#edPrice").value.split(" ")[0], range:$("#edRange").value.trim(),
     phone:$("#edPhone").value.trim(), hours:$("#edHours").value.trim(), note:$("#edNote").value.trim(),
-    fav:$("#edFav").checked, hide:$("#edHide").checked, plat:PLATS.filter(pl=>$("#edPl_"+pl.k).checked).map(pl=>pl.k), cats:[...$("#edCats").selectedOptions].map(o=>o.value)};
+    fav:$("#edFav").checked, hide:$("#edHide").checked, plat:PLATS.filter(pl=>$("#edPl_"+pl.k).checked).map(pl=>pl.k), platNo:p.platNo.filter(k=>!$("#edPl_"+k).checked), cats:[...$("#edCats").selectedOptions].map(o=>o.value)};
   try{ await api("/api/edit", body); EDITS[p.id] = {...(EDITS[p.id]||{}), ...body};
     PLACES = PLACES.map(x => x.id===p.id ? decorate(x) : x);
     $("#dlgEdit").classList.remove("show"); toast("บันทึกแล้ว"); refresh();
